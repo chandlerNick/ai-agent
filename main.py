@@ -1,10 +1,11 @@
 import os
+from urllib import response
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 import argparse
 from prompts import system_prompt
-from functions.call_function import available_functions
+from functions.call_function import available_functions, call_function
 
 def main():
     # Ensure API key is loaded from .env file
@@ -26,38 +27,60 @@ def main():
     # Set up agent
     client = genai.Client(api_key=api_key)
 
-    # Query model
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=messages,
-        config=types.GenerateContentConfig(
-            tools=[available_functions],
-            system_instruction=system_prompt,
-            temperature=0
-        ),
-    )
+    for _ in range(20):
+        # Query model
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=messages,
+            config=types.GenerateContentConfig(
+                tools=[available_functions],
+                system_instruction=system_prompt,
+                temperature=0
+            ),
+        )
 
-    # Print response and other metadata
-    if args.verbose:
-        print(f"User prompt: {args.user_prompt}")
-        print(f"Prompt tokens: {response.usage_metadata.prompt_token_count}")
-        print(f"Response tokens: {response.usage_metadata.candidates_token_count}")
-    
-    print(response.text)
-    print("Function calls made:")
-    candidate = response.candidates[0]
-    for part in candidate.content.parts:
-        if part.function_call:
-            call = part.function_call
-            print(f"Function called: {call.name}")
-            # print(f"ID: {call.id}") # Optional: ID is used for multi-turn tracking
-            print(f"Arguments: {call.args}")
-            
+        if response.candidates:
+            model_content = response.candidates[0].content
+            messages.append(model_content)
         else:
-            print("No function call found in this part.")
-            # If there is no function call, there might be text
-            if part.text:
-                print(f"Model text: {part.text}")
+            break
+        
+
+        # Print response and other metadata
+        if args.verbose:
+            print(f"User prompt: {args.user_prompt}")
+            print(f"Prompt tokens: {response.usage_metadata.prompt_token_count}")
+            print(f"Response tokens: {response.usage_metadata.candidates_token_count}")
+        
+        function_parts = []
+        has_function_call = False
+
+        # 2. Process all parts in the response
+        for part in model_content.parts:
+            if part.function_call:
+                has_function_call = True
+                # Call your local tool
+                function_call_result = call_function(part.function_call, verbose=args.verbose)
+                
+                # The tool result is a Part; collect it
+                # Ensure call_function returns a types.Part(function_response=...)
+                function_parts.append(function_call_result.parts[0])
+            
+            elif part.text and args.verbose:
+                print(f"Model: {part.text}")
+
+        # 3. If there were function calls, send the results back to the model
+        if has_function_call:
+            # Crucial: The role must be 'function' (or 'user' depending on SDK version/preference, 
+            # but usually 'function' for tool results)
+            messages.append(types.Content(role="tool", parts=function_parts))
+        else:
+            # If no function calls, the model has given its final answer
+            if not args.verbose:
+                print(response.text)
+            break
+
+    exit(1)
 
 if __name__ == "__main__":
     main()
