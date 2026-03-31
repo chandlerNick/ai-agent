@@ -4,6 +4,8 @@ This follows the tutorial from boot.dev on how to build a simple agent using goo
 
 It has the basic ability to edit code, execute files, and the like.
 
+Be careful, I have implemented safeguards but it can edit files and execute code.
+
 ### Usage
 
 1. Add a [Gemini API Key](https://aistudio.google.com/api-keys) to a `.env` file. Call it `GEMINI_API_KEY`.
